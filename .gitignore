@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# Logs
+*.log
+
+# Project specific
+data/*.csv
+results.txt
+*.pdf
+*.txt
+!requirements.txt
+*.png
+implementation_plan.md
+walkthrough.md
+
+# OS
+.DS_Store
