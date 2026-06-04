@@ -14,17 +14,24 @@ DATA_DIR = 'data'
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
-EMPLOYEES_FILE = os.path.join(DATA_DIR, 'employees.csv')
+EMPLOYEES_FILE_1 = os.path.join(DATA_DIR, 'employees_site1.csv')
+EMPLOYEES_FILE_3 = os.path.join(DATA_DIR, 'employees_site3.csv')
 ASSIGNMENTS_FILE = os.path.join(DATA_DIR, 'assignments.csv')
 
 def generate_data():
-    print(f"Generating {NUM_EMPLOYEES} employees...")
+    print(f"Generating {NUM_EMPLOYEES} employees across Node 1 and Node 3...")
     employees = []
     emp_ids = []
     
-    with open(EMPLOYEES_FILE, mode='w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(['EmpID', 'Name', 'Department', 'Email', 'Salary'])
+    with open(EMPLOYEES_FILE_1, mode='w', newline='', encoding='utf-8') as f1, \
+         open(EMPLOYEES_FILE_3, mode='w', newline='', encoding='utf-8') as f3:
+        
+        writer1 = csv.writer(f1)
+        writer3 = csv.writer(f3)
+        
+        header = ['EmpID', 'Name', 'Department', 'Email', 'Salary']
+        writer1.writerow(header)
+        writer3.writerow(header)
         
         for i in range(1, NUM_EMPLOYEES + 1):
             emp_id = f"EMP{i:05d}"
@@ -33,7 +40,12 @@ def generate_data():
             email = fake.email()
             salary = random.randint(30000, 150000)
             
-            writer.writerow([emp_id, name, department, email, salary])
+            row = [emp_id, name, department, email, salary]
+            if i <= NUM_EMPLOYEES // 2:
+                writer1.writerow(row)
+            else:
+                writer3.writerow(row)
+                
             emp_ids.append(emp_id)
 
     print(f"Generating {NUM_ASSIGNMENTS} assignments...")

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributed Database Demo</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <div class="container">
+        <header class="glass-panel">
+            <h1>DDBS <span>Query Optimizer</span></h1>
+            <p>Topic #11: Find Employees Working on at Least One Project</p>
+        </header>
+
+        <main>
+            <div class="controls glass-panel">
+                <button id="btn-standard" class="btn primary">Run Standard Join</button>
+                <button id="btn-semi" class="btn secondary">Run Semi-Join</button>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-card glass-panel" id="card-standard">
+                    <h3>Standard Join Metrics</h3>
+                    <div class="metric-row">
+                        <span>Bytes Transferred:</span>
+                        <span id="std-bytes">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Execution Time:</span>
+                        <span id="std-time">--</span>
+                    </div>
+                </div>
+                
+                <div class="metric-card glass-panel" id="card-semi">
+                    <h3>Semi-Join Metrics</h3>
+                    <div class="metric-row">
+                        <span>Bytes Transferred:</span>
+                        <span id="semi-bytes">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Execution Time:</span>
+                        <span id="semi-time">--</span>
+                    </div>
+                </div>
+
+                <div class="metric-card glass-panel highlight-card" id="card-comparison">
+                    <h3>Performance Gain</h3>
+                    <div class="metric-row">
+                        <span>Bandwidth Saved:</span>
+                        <span id="comp-bandwidth" class="highlight-text">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Speedup:</span>
+                        <span id="comp-speed" class="highlight-text">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metrics-grid secondary-grid">
+                <div class="glass-panel trace-panel">
+                    <h3>Execution Trace (Query Logic Flow)</h3>
+                    <div id="trace-container" class="trace-list">
+                        <p class="empty-text">Run a query to see the step-by-step distributed logic.</p>
+                    </div>
+                </div>
+
+                <div class="glass-panel cost-panel">
+                    <h3>Cost Model Analysis (Özsu Theory)</h3>
+                    <div id="cost-container" class="cost-content">
+                        <p class="empty-text">Theoretical cost breakdown will appear here.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="results-panel glass-panel">
+                <div class="results-header">
+                    <h2>Query Results (Sample of first 100)</h2>
+                    <span id="total-results-badge" class="badge">0 Results Found</span>
+                </div>
+                <div class="table-container">
+                    <table id="results-table">
+                        <thead>
+                            <tr>
+                                <th>EmpID</th>
+                                <th>Name</th>
+                                <th>Department</th>
+                                <th>Email</th>
+                                <th>Salary</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-body">
+                            <tr>
+                                <td colspan="5" class="empty-state">Run a query to see results here.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

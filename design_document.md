@@ -10,10 +10,11 @@ This document outlines the design and theoretical justification for implementing
 Our system demonstrates this by evaluating a query spanning two nodes: one storing `Employees` ($R$) and another storing `Assignments` ($S$). We aim to find all employees currently working on at least one project.
 
 ## 2. Architecture & Components
-The system is built on a 3-node simulated architecture using Python and FastAPI:
-- **Node 1 (Employee Site):** Manages the `Employees` dataset (10,000 records). Exposes REST APIs for full retrieval and semi-join filtering.
+The system is built on a 4-node simulated architecture using Python and FastAPI (3 Data Sites + 1 Coordinator):
+- **Node 1 (Employee Site A):** Manages the first horizontally fragmented half of the `Employees` dataset (5,000 records). Exposes REST APIs for full retrieval and semi-join filtering.
+- **Node 3 (Employee Site B):** Manages the second half of the `Employees` dataset (5,000 records). Exposes the same APIs as Node 1.
 - **Node 2 (Assignment Site):** Manages the `Assignments` dataset (50,000 records). Exposes REST APIs to retrieve full records or projected unique foreign keys.
-- **Node 3 (Coordinator):** Orchestrates the query execution, measures payload sizes, and calculates total execution time. 
+- **Coordinator:** Orchestrates the query execution across the 3 data sites, measures payload sizes, and calculates total execution time. 
 
 The rationale for using lightweight HTTP APIs (FastAPI) and Pandas DataFrames is to mimic real-world microservice communication while keeping I/O bound operations fast in-memory, allowing us to accurately observe network latency and bandwidth differences.
 
@@ -27,11 +28,11 @@ In a naive standard join, Node 2 ships the entire `Assignments` table to the Coo
 - **Disadvantage:** High communication cost, especially when $S$ is large.
 
 ### 3.2 Semi-Join ($R \ltimes S$)
-The semi-join approach reduces the data transfer:
+The semi-join approach reduces the data transfer and leverages parallel processing:
 1. **Projection:** Node 2 projects the join attribute (`EmpID`) from $S$ and eliminates duplicates, creating $S'$. 
-2. **Transfer:** Node 2 ships $S'$ to Node 1. Because $S'$ only contains unique identifiers, its size is vastly smaller than $S$.
-3. **Filtering (Semi-Join):** Node 1 filters $R$ based on $S'$, producing $R' = R \ltimes S$.
-4. **Result:** Node 1 sends $R'$ to the Coordinator.
+2. **Transfer:** Node 2 ships $S'$ to the Coordinator, which broadcasts it to both Node 1 and Node 3.
+3. **Filtering (Semi-Join):** Nodes 1 and Node 3 filter their respective $R$ fragments based on $S'$, producing $R_1'$ and $R_3'$ in parallel.
+4. **Result:** Nodes 1 and 3 send their results back to the Coordinator, which unions them.
 - **Bytes Transferred:** Size($S'$) + Size($R'$)
 - **Advantage:** By trading a small amount of local processing (projection and deduplication) at Node 2, we avoid shipping the bulky unneeded columns of $S$.
 

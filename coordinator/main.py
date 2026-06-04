@@ -9,6 +9,7 @@ app = FastAPI(title="Distributed Database Demo UI")
 
 NODE1_URL = "http://127.0.0.1:8001"
 NODE2_URL = "http://127.0.0.1:8002"
+NODE3_URL = "http://127.0.0.1:8003"
 
 # Mount static files
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -42,8 +43,13 @@ def api_run_standard():
     assignments, b1, t1 = measure_request('GET', f"{NODE2_URL}/assignments")
     if not assignments: return {"error": "Failed to contact Node 2"}
     
-    employees, b2, t2 = measure_request('GET', f"{NODE1_URL}/employees")
-    if not employees: return {"error": "Failed to contact Node 1"}
+    employees_1, b2, t2 = measure_request('GET', f"{NODE1_URL}/employees")
+    if not employees_1: return {"error": "Failed to contact Node 1"}
+    
+    employees_3, b3, t3 = measure_request('GET', f"{NODE3_URL}/employees")
+    if not employees_3: return {"error": "Failed to contact Node 3"}
+    
+    employees = employees_1 + employees_3
     
     start_join = time.time()
     emp_dict = {e['EmpID']: e for e in employees}
@@ -56,8 +62,8 @@ def api_run_standard():
             
     end_join = time.time()
     
-    total_bytes = b1 + b2
-    total_time = t1 + t2 + (end_join - start_join)
+    total_bytes = b1 + b2 + b3
+    total_time = t1 + max(t2, t3) + (end_join - start_join)
     
     # Return a sample of up to 100 to avoid freezing the browser
     return {
@@ -66,7 +72,22 @@ def api_run_standard():
             "executionTime": total_time,
             "node1Bytes": b2,
             "node2Bytes": b1,
+            "node3Bytes": b3,
             "resultCount": len(joined_data)
+        },
+        "trace": [
+            {"step": 1, "desc": "Requesting all Assignments from Node 2", "site": "Node 2", "cost": f"{b1:,} bytes"},
+            {"step": 2, "desc": "Requesting Employees (Part 1) from Node 1", "site": "Node 1", "cost": f"{b2:,} bytes"},
+            {"step": 3, "desc": "Requesting Employees (Part 2) from Node 3", "site": "Node 3", "cost": f"{b3:,} bytes"},
+            {"step": 4, "desc": "Performing Local Join at Coordinator", "site": "Coordinator", "cost": "CPU heavy"}
+        ],
+        "cost_analysis": {
+            "formula": "Total_Cost = (C_msg * #msgs) + (C_tr * #bytes)",
+            "c_msg": 10,
+            "c_tr": 0.001,
+            "msgs": 3,
+            "bytes": total_bytes,
+            "calculated_comm_cost": (10 * 3) + (0.001 * total_bytes)
         },
         "results": joined_data[:100]
     }
@@ -78,13 +99,19 @@ def api_run_semi_join():
         
     unique_emp_ids = response_data['emp_ids']
     
-    employees, b2, t2 = measure_request('POST', f"{NODE1_URL}/employees/semi-join", json_data={"emp_ids": unique_emp_ids})
-    if not employees: return {"error": "Failed to contact Node 1"}
+    employees_1, b2, t2 = measure_request('POST', f"{NODE1_URL}/employees/semi-join", json_data={"emp_ids": unique_emp_ids})
+    if not employees_1: return {"error": "Failed to contact Node 1"}
     
-    b_request = len(str({"emp_ids": unique_emp_ids}).encode('utf-8'))
+    employees_3, b3, t3 = measure_request('POST', f"{NODE3_URL}/employees/semi-join", json_data={"emp_ids": unique_emp_ids})
+    if not employees_3: return {"error": "Failed to contact Node 3"}
     
-    total_bytes = b1 + b2 + b_request
-    total_time = t1 + t2
+    employees = employees_1 + employees_3
+    
+    # Payload is sent twice (to Node 1 and Node 3)
+    b_request = len(str({"emp_ids": unique_emp_ids}).encode('utf-8')) * 2
+    
+    total_bytes = b1 + b2 + b3 + b_request
+    total_time = t1 + max(t2, t3)
     
     return {
         "metrics": {
@@ -92,8 +119,24 @@ def api_run_semi_join():
             "executionTime": total_time,
             "node1Bytes": b2,
             "node2Bytes": b1,
+            "node3Bytes": b3,
             "requestBytes": b_request,
             "resultCount": len(employees)
+        },
+        "trace": [
+            {"step": 1, "desc": "Projecting unique EmpIDs at Node 2", "site": "Node 2", "cost": "CPU light"},
+            {"step": 2, "desc": "Transferring unique EmpIDs to Coordinator", "site": "Node 2 -> Coord", "cost": f"{b1:,} bytes"},
+            {"step": 3, "desc": "Broadcasting EmpID list to Node 1 and Node 3", "site": "Coord -> Nodes 1,3", "cost": f"{b_request:,} bytes"},
+            {"step": 4, "desc": "Filtering Employees at Nodes 1 & 3 in parallel", "site": "Node 1 & 3", "cost": "CPU light"},
+            {"step": 5, "desc": "Transferring matching Employees to Coordinator", "site": "Nodes 1,3 -> Coord", "cost": f"{b2 + b3:,} bytes"}
+        ],
+        "cost_analysis": {
+            "formula": "Total_Cost = (C_msg * #msgs) + (C_tr * #bytes)",
+            "c_msg": 10,
+            "c_tr": 0.001,
+            "msgs": 5,
+            "bytes": total_bytes,
+            "calculated_comm_cost": (10 * 5) + (0.001 * total_bytes)
         },
         "results": employees[:100]
     }

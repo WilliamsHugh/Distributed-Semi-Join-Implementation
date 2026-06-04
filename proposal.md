@@ -23,7 +23,7 @@
 *   **Fragmentation Strategy:** Dữ liệu được lưu trữ phân tán. Node 1 giữ Employee, Node 2 giữ Assignment.
 
 ## 4. System Architecture
-*   **Nodes:** 3 Nodes mô phỏng (Node 1, Node 2, Coordinator Node).
+*   **Nodes:** 3 Data Nodes (Node 1, Node 3 for Employee fragments, Node 2 for Assignment) + 1 Coordinator Node.
 *   **Communication Layer:** HTTP/REST API thông qua framework FastAPI. JSON payload dùng để trao đổi dữ liệu.
 *   **Storage:** Local CSV files được nạp vào bộ nhớ RAM (bằng Pandas DataFrame) khi hệ thống khởi động để tối ưu tốc độ đọc.
 
