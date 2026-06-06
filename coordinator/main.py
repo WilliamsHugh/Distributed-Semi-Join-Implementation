@@ -125,7 +125,10 @@ def api_run_semi_join(prefix: str = ""):
 
     # Step 2: Fragment Pruning — query metadata catalogs (no data transfer)
     meta1 = get_node_metadata(NODE1_URL)
+    if not meta1: return {"error": "Failed to contact Node 1"}
+    
     meta3 = get_node_metadata(NODE3_URL)
+    if not meta3: return {"error": "Failed to contact Node 3"}
 
     node1_relevant = emp_ids_overlap(unique_emp_ids_set, meta1)
     node3_relevant = emp_ids_overlap(unique_emp_ids_set, meta3)
@@ -137,9 +140,12 @@ def api_run_semi_join(prefix: str = ""):
     if prefix:
         pruning_trace.append({"step": len(pruning_trace)+1, "desc": f"Selection Predicate applied: EmpID LIKE '{prefix}%' → {len(unique_emp_ids):,} match", "site": "Coordinator", "cost": "Predicate filter", "type": "prune"})
 
+    meta1_desc = f"range: {meta1['min_id']} to {meta1['max_id']}"
+    meta3_desc = f"range: {meta3['min_id']} to {meta3['max_id']}"
+
     pruning_trace.extend([
-        {"step": len(pruning_trace)+1, "desc": f"Query Localization: Check Node 1 catalog (range: {meta1['min_id']} to {meta1['max_id']})", "site": "Coordinator", "cost": "0 bytes (catalog only)", "type": "prune"},
-        {"step": len(pruning_trace)+2, "desc": f"Query Localization: Check Node 3 catalog (range: {meta3['min_id']} to {meta3['max_id']})", "site": "Coordinator", "cost": "0 bytes (catalog only)", "type": "prune"},
+        {"step": len(pruning_trace)+1, "desc": f"Query Localization: Check Node 1 catalog ({meta1_desc})", "site": "Coordinator", "cost": "0 bytes (catalog only)", "type": "prune"},
+        {"step": len(pruning_trace)+2, "desc": f"Query Localization: Check Node 3 catalog ({meta3_desc})", "site": "Coordinator", "cost": "0 bytes (catalog only)", "type": "prune"},
     ])
 
     step = len(pruning_trace) + 1
@@ -155,12 +161,14 @@ def api_run_semi_join(prefix: str = ""):
         b_req1 = len(str({"emp_ids": unique_emp_ids}).encode('utf-8'))
         b_request_total += b_req1
         emp1, b2, t2 = measure_request('POST', f"{NODE1_URL}/employees/semi-join", json_data={"emp_ids": unique_emp_ids})
-        if emp1:
+        if emp1 is not None:
             employees += emp1
             b_results_total += b2
             t_filter_max = max(t_filter_max, t2)
             pruning_trace.append({"step": step, "desc": f"Semi-Join at Node 1: {len(emp1):,} matches found", "site": "Node 1", "cost": f"{b2:,} bytes returned", "type": "normal"})
             step += 1
+        else:
+            return {"error": "Failed to contact Node 1"}
     else:
         nodes_pruned.append("Node 1")
         pruning_trace.append({"step": step, "desc": "PRUNED: Node 1 skipped — no matching EmpIDs in its range", "site": "Node 1", "cost": "0 bytes (pruned)", "type": "pruned"})
@@ -171,12 +179,14 @@ def api_run_semi_join(prefix: str = ""):
         b_req3 = len(str({"emp_ids": unique_emp_ids}).encode('utf-8'))
         b_request_total += b_req3
         emp3, b3, t3 = measure_request('POST', f"{NODE3_URL}/employees/semi-join", json_data={"emp_ids": unique_emp_ids})
-        if emp3:
+        if emp3 is not None:
             employees += emp3
             b_results_total += b3
             t_filter_max = max(t_filter_max, t3)
             pruning_trace.append({"step": step, "desc": f"Semi-Join at Node 3: {len(emp3):,} matches found", "site": "Node 3", "cost": f"{b3:,} bytes returned", "type": "normal"})
             step += 1
+        else:
+            return {"error": "Failed to contact Node 3"}
     else:
         nodes_pruned.append("Node 3")
         pruning_trace.append({"step": step, "desc": "PRUNED: Node 3 skipped — no matching EmpIDs in its range", "site": "Node 3", "cost": "0 bytes (pruned)", "type": "pruned"})
