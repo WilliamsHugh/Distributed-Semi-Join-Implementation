@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const btnStandard = document.getElementById('btn-standard');
     const btnSemi = document.getElementById('btn-semi');
+    const btnDemoPrune = document.getElementById('btn-demo-prune');
     
     // Standard elements
     const stdBytes = document.getElementById('std-bytes');
@@ -70,17 +71,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function runQuery(type) {
         const isStandard = type === 'standard';
-        const btn = isStandard ? btnStandard : btnSemi;
+        const isDemo = type === 'demo';
+        const btn = isStandard ? btnStandard : (isDemo ? btnDemoPrune : btnSemi);
         const bytesEl = isStandard ? stdBytes : semiBytes;
         const timeEl = isStandard ? stdTime : semiTime;
-        const url = isStandard ? '/api/run-standard' : '/api/run-semi-join';
+        let url = isStandard ? '/api/run-standard' : '/api/run-semi-join';
+        if (isDemo) url = '/api/run-semi-join-demo?prefix=EMP09';
 
         // Set Loading state
         const originalText = btn.textContent;
         btn.innerHTML = '<span class="loader"></span> Running...';
-        btn.disabled = true;
-        if(isStandard) btnSemi.disabled = true;
-        else btnStandard.disabled = true;
+        btnStandard.disabled = true;
+        btnSemi.disabled = true;
+        if(btnDemoPrune) btnDemoPrune.disabled = true;
 
         try {
             const response = await fetch(url);
@@ -111,9 +114,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             // Restore state
             btn.innerHTML = originalText;
-            btn.disabled = false;
             btnStandard.disabled = false;
             btnSemi.disabled = false;
+            if(btnDemoPrune) btnDemoPrune.disabled = false;
         }
     }
 
@@ -122,7 +125,8 @@ document.addEventListener('DOMContentLoaded', () => {
         container.innerHTML = '';
         trace.forEach(item => {
             const step = document.createElement('div');
-            step.className = 'trace-step';
+            const typeClass = item.type ? `trace-step--${item.type}` : '';
+            step.className = `trace-step ${typeClass}`;
             step.innerHTML = `
                 <div class="step-num">${item.step}</div>
                 <div class="step-content">
@@ -161,4 +165,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
     btnStandard.addEventListener('click', () => runQuery('standard'));
     btnSemi.addEventListener('click', () => runQuery('semi'));
+    if(btnDemoPrune) btnDemoPrune.addEventListener('click', () => runQuery('demo'));
 });

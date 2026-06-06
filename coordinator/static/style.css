@@ -346,3 +346,33 @@ tbody tr:hover {
     font-style: italic;
     text-align: center;
 }
+
+/* Fragment Pruning trace step variants */
+.trace-step--pruned {
+    border-left-color: #ef4444;
+    background: rgba(239, 68, 68, 0.06);
+    opacity: 0.75;
+}
+
+.trace-step--pruned .step-num {
+    background: #ef4444;
+    text-decoration: line-through;
+}
+
+.trace-step--prune {
+    border-left-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.06);
+}
+
+.trace-step--prune .step-num {
+    background: #f59e0b;
+}
+
+.trace-step--warning {
+    border-left-color: #f97316;
+    background: rgba(249, 115, 22, 0.08);
+}
+
+.trace-step--warning .step-num {
+    background: #f97316;
+}

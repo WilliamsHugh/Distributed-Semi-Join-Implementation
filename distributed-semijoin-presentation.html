@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Distributed Semi-Join — Data Jarvis</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   VIEWPORT BASE — Fixed 1920×1080 Stage
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #080c14;
+  --surface:   #0d1525;
+  --card:      #111d35;
+  --border:    #1e3060;
+  --accent1:   #4f8eff;   /* electric blue */
+  --accent2:   #a259ff;   /* violet */
+  --accent3:   #00e5c8;   /* cyan */
+  --accent4:   #ffb740;   /* amber */
+  --text:      #e4ecff;
+  --muted:     #7a95c8;
+  --dim:       #3d5580;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Syne', sans-serif;
+}
+
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+
+/* Deck wrapper fills viewport, centers the stage */
+#deck {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Fixed 1920×1080 stage, uniformly scaled */
+.stage-wrap {
+  width: 1920px; height: 1080px;
+  transform-origin: center center;
+}
+
+/* Individual slides — same fixed canvas */
+.slide {
+  position: absolute; inset: 0;
+  width: 1920px; height: 1080px;
+  background: var(--bg);
+  visibility: hidden; opacity: 0; pointer-events: none;
+  transition: opacity 0.5s ease;
+  overflow: hidden;
+}
+.slide.active { visibility: visible; opacity: 1; pointer-events: auto; }
+
+/* --- shared layout helpers --- */
+.slide-inner { position: relative; width: 100%; height: 100%; display: flex; }
+
+/* Grid noise texture overlay */
+.slide::before {
+  content: '';
+  position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background-image:
+    linear-gradient(rgba(79,142,255,.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(79,142,255,.04) 1px, transparent 1px);
+  background-size: 80px 80px;
+}
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+@keyframes fadeUp   { from { opacity:0; transform:translateY(40px) } to { opacity:1; transform:translateY(0) } }
+@keyframes fadeIn   { from { opacity:0 } to { opacity:1 } }
+@keyframes slideLeft{ from { opacity:0; transform:translateX(-50px) } to { opacity:1; transform:translateX(0) } }
+@keyframes slideRight{from { opacity:0; transform:translateX(50px)  } to { opacity:1; transform:translateX(0) } }
+@keyframes pulse    { 0%,100%{ box-shadow:0 0 0 0 rgba(79,142,255,.4) } 50%{ box-shadow:0 0 0 20px rgba(79,142,255,0) } }
+@keyframes scanline { 0%{ top:-10% } 100%{ top:110% } }
+@keyframes glow { 0%,100%{ text-shadow:0 0 30px rgba(79,142,255,.6) } 50%{ text-shadow:0 0 60px rgba(79,142,255,1), 0 0 100px rgba(162,89,255,.5) } }
+@keyframes countup { from{ opacity:0; transform:scale(.5) } to{ opacity:1; transform:scale(1) } }
+@keyframes barGrow { from{ width:0 } to{ width:var(--w) } }
+
+.slide.active .anim-1 { animation: fadeUp .7s .1s both ease-out }
+.slide.active .anim-2 { animation: fadeUp .7s .3s both ease-out }
+.slide.active .anim-3 { animation: fadeUp .7s .5s both ease-out }
+.slide.active .anim-4 { animation: fadeUp .7s .7s both ease-out }
+.slide.active .anim-5 { animation: fadeUp .7s .9s both ease-out }
+.slide.active .anim-l1{ animation: slideLeft  .7s .2s both ease-out }
+.slide.active .anim-l2{ animation: slideLeft  .7s .4s both ease-out }
+.slide.active .anim-r1{ animation: slideRight .7s .2s both ease-out }
+.slide.active .anim-r2{ animation: slideRight .7s .5s both ease-out }
+.slide.active .anim-fi{ animation: fadeIn 1s .3s both }
+
+/* ============================================================
+   COMPONENT LIBRARY
+   ============================================================ */
+.slide-num {
+  position: absolute; bottom: 40px; right: 60px;
+  font: 500 28px var(--mono); color: var(--dim); z-index: 10;
+}
+.tag {
+  display: inline-block;
+  font: 600 26px var(--mono);
+  color: var(--accent3); letter-spacing:.12em; text-transform:uppercase;
+  padding: 6px 16px; border: 1px solid var(--accent3);
+  border-radius: 4px; margin-bottom: 28px;
+}
+.tag.violet { color: var(--accent2); border-color: var(--accent2); }
+.tag.amber  { color: var(--accent4); border-color: var(--accent4); }
+
+h1.hero { font: 800 108px/1.0 var(--sans); color: var(--text); }
+h2.section-title { font: 700 72px/1.1 var(--sans); color: var(--text); margin-bottom: 24px; }
+h3.card-title { font: 700 36px/1.2 var(--sans); color: var(--text); margin-bottom: 12px; }
+p.lead { font: 400 34px/1.6 var(--sans); color: var(--muted); }
+p.body { font: 400 28px/1.7 var(--sans); color: var(--muted); }
+
+.glowtext { color: var(--accent1); animation: glow 3s ease-in-out infinite; }
+
+.divider { width: 80px; height: 4px; background: linear-gradient(90deg, var(--accent1), var(--accent2)); border-radius: 2px; margin-bottom: 36px; }
+
+.code-block {
+  background: #060d1e; border: 1px solid var(--border);
+  border-left: 3px solid var(--accent1);
+  border-radius: 8px; padding: 28px 36px;
+  font: 400 28px/1.8 var(--mono); color: #c9d7f5;
+}
+.code-block .kw { color: var(--accent2); }
+.code-block .fn { color: var(--accent1); }
+.code-block .str{ color: var(--accent3); }
+.code-block .cm { color: var(--dim); }
+
+.stat-big { font: 800 96px/1 var(--sans); }
+.stat-label{ font: 500 30px var(--mono); color: var(--muted); letter-spacing:.06em; margin-top: 8px; }
+
+.info-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 16px; padding: 40px 48px;
+}
+.info-card.highlight { border-color: var(--accent1); background: rgba(79,142,255,.06); }
+
+.node-badge {
+  display: inline-flex; align-items: center; gap: 14px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px 28px;
+  font: 600 30px var(--sans); color: var(--text);
+}
+.node-badge .dot { width: 16px; height: 16px; border-radius: 50%; flex-shrink:0; }
+.dot-blue   { background: var(--accent1); box-shadow: 0 0 10px var(--accent1); }
+.dot-violet { background: var(--accent2); box-shadow: 0 0 10px var(--accent2); }
+.dot-cyan   { background: var(--accent3); box-shadow: 0 0 10px var(--accent3); }
+.dot-amber  { background: var(--accent4); box-shadow: 0 0 10px var(--accent4); }
+
+/* ============================================================
+   NAVIGATION
+   ============================================================ */
+#nav {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; z-index: 100;
+}
+.nav-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(13,21,37,.85); backdrop-filter: blur(10px);
+  color: var(--muted); font-size: 14px; cursor: pointer;
+  transition: all .2s; display: flex; align-items: center; justify-content: center;
+}
+.nav-btn:hover { border-color: var(--accent1); color: var(--accent1); }
+#slide-counter {
+  font: 500 18px var(--mono); color: var(--muted);
+  display: flex; align-items: center; padding: 0 10px;
+  background: rgba(13,21,37,.85); border: 1px solid var(--border);
+  border-radius: 16px; backdrop-filter: blur(10px);
+}
+/* keyboard hint */
+#hint { position: fixed; top: 14px; right: 20px; font: 400 18px var(--mono); color: var(--dim); z-index: 100; }
+
+/* ============================================================
+   SLIDE 1 — TITLE
+   ============================================================ */
+#s1 {
+  background: radial-gradient(ellipse 70% 70% at 70% 50%, rgba(79,142,255,.12) 0%, transparent 70%),
+              radial-gradient(ellipse 50% 50% at 20% 80%, rgba(162,89,255,.10) 0%, transparent 60%),
+              var(--bg);
+}
+#s1 .left-col {
+  width: 900px; padding: 140px 0 0 120px;
+  display: flex; flex-direction: column;
+}
+#s1 .right-col {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+}
+#s1 .arch-diagram {
+  width: 680px; height: 680px; position: relative;
+}
+/* Decorative corner lines */
+#s1::after {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background:
+    linear-gradient(90deg, var(--border) 1px, transparent 1px) 0 0 / 160px 160px,
+    linear-gradient(var(--border) 1px, transparent 1px) 0 0 / 160px 160px;
+  opacity: .18; pointer-events: none;
+}
+
+/* ============================================================
+   SLIDE 5 — Architecture: flow diagram boxes
+   ============================================================ */
+.flow-box {
+  position: absolute;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px 28px;
+  font: 600 26px var(--sans); color: var(--text);
+  text-align: center; white-space: nowrap;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.flow-box small { font: 400 24px var(--mono); color: var(--muted); white-space: nowrap; }
+.flow-box.coord { border-color: var(--accent4); background: rgba(255,183,64,.06); }
+.flow-box.emp   { border-color: var(--accent1); background: rgba(79,142,255,.06); }
+.flow-box.asgn  { border-color: var(--accent3); background: rgba(0,229,200,.06); }
+
+/* ============================================================
+   COMPARISON BAR CHART (slide 7)
+   ============================================================ */
+.bar-wrap { margin-top: 16px; }
+.bar-label { font: 500 30px var(--mono); color: var(--muted); margin-bottom: 8px; }
+.bar-track { height: 52px; background: rgba(255,255,255,.04); border-radius: 8px; overflow: hidden; position: relative; }
+.bar-fill {
+  height: 100%; border-radius: 8px;
+  display: flex; align-items: center; padding: 0 20px;
+  font: 700 28px var(--mono); color: #fff;
+  transition: width 1.2s cubic-bezier(.4,0,.2,1);
+  width: 0;
+}
+.bar-fill.std  { background: linear-gradient(90deg, #ff4040, #ff7b40); }
+.bar-fill.semi { background: linear-gradient(90deg, var(--accent1), var(--accent3)); }
+.slide.active .bar-fill.std  { width: 100%; }
+.slide.active .bar-fill.semi { width: 23%; }
+
+/* ============================================================
+   STEP TRACE (slides 8–9)
+   ============================================================ */
+.trace-step {
+  display: flex; gap: 24px; align-items: flex-start;
+  padding: 20px 28px; border-radius: 12px;
+  background: var(--card); border: 1px solid var(--border);
+}
+.trace-step.active-step { border-color: var(--accent1); background: rgba(79,142,255,.07); }
+.step-num {
+  width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0;
+  background: var(--accent1); display: flex; align-items: center; justify-content: center;
+  font: 700 26px var(--mono); color: #fff;
+}
+.step-num.v { background: var(--accent2); }
+.step-num.c { background: var(--accent3); }
+.step-body { display: flex; flex-direction: column; gap: 4px; }
+.step-title { font: 600 28px var(--sans); color: var(--text); }
+.step-sub   { font: 400 26px var(--mono); color: var(--muted); }
+
+/* ============================================================
+   COST MODEL BOX
+   ============================================================ */
+.formula-box {
+  background: #060d1e; border: 1px solid var(--accent2);
+  border-radius: 12px; padding: 32px 44px;
+  font: 600 32px var(--mono); color: var(--accent3); text-align: center;
+  letter-spacing: .02em;
+}
+.formula-box span { color: var(--accent4); }
+
+@media (prefers-reduced-motion: reduce) {
+  .slide { transition: none; }
+  * { animation: none !important; }
+  .bar-fill { transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<div id="deck">
+<div class="stage-wrap" id="stage">
+
+<!-- ====================================================
+     SLIDE 1 — TITLE
+     ==================================================== -->
+<div class="slide active" id="s1">
+  <div class="slide-inner">
+    <div class="left-col">
+      <div class="tag anim-1">DISTRIBUTED DATABASE SYSTEMS — TOPIC #11</div>
+      <h1 class="hero anim-2">
+        Distributed<br>
+        <span class="glowtext">Semi-Join</span><br>
+        Optimization
+      </h1>
+      <div class="divider anim-3" style="margin-top:32px;"></div>
+      <p class="lead anim-4" style="max-width:660px; margin-top:20px;">
+        Giảm thiểu chi phí truyền tải mạng trong truy vấn phân tán
+        bằng thuật toán <strong style="color:var(--text)">R ⋉ S</strong>
+      </p>
+      <p class="body anim-5" style="margin-top: 40px; font-size:30px;">
+        <span style="color:var(--accent4)">Team:</span> Data Jarvis &nbsp;·&nbsp;
+        <span style="color:var(--accent4)">Author:</span> Tran Truong Thuan
+      </p>
+    </div>
+
+    <div class="right-col anim-r1">
+      <!-- Decorative node diagram SVG -->
+      <svg width="660" height="660" viewBox="0 0 660 660" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- Connection lines -->
+        <line x1="330" y1="120" x2="150" y2="330" stroke="#1e3060" stroke-width="2" stroke-dasharray="8 6"/>
+        <line x1="330" y1="120" x2="510" y2="330" stroke="#1e3060" stroke-width="2" stroke-dasharray="8 6"/>
+        <line x1="150" y1="330" x2="330" y2="540" stroke="#1e3060" stroke-width="2" stroke-dasharray="8 6"/>
+        <line x1="510" y1="330" x2="330" y2="540" stroke="#1e3060" stroke-width="2" stroke-dasharray="8 6"/>
+        <!-- Glow lines accent -->
+        <line x1="330" y1="120" x2="330" y2="540" stroke="url(#lg1)" stroke-width="1.5" opacity=".5"/>
+        <defs>
+          <linearGradient id="lg1" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+            <stop stop-color="#4f8eff" offset="0"/>
+            <stop stop-color="#a259ff" offset=".5"/>
+            <stop stop-color="#00e5c8" offset="1"/>
+          </linearGradient>
+          <filter id="gf"><feGaussianBlur stdDeviation="6"/></filter>
+        </defs>
+        <!-- Coordinator -->
+        <circle cx="330" cy="120" r="70" fill="#111d35" stroke="#ffb740" stroke-width="2"/>
+        <circle cx="330" cy="120" r="70" fill="rgba(255,183,64,.08)"/>
+        <text x="330" y="112" text-anchor="middle" font-family="JetBrains Mono" font-size="20" fill="#ffb740" font-weight="600">COORD</text>
+        <text x="330" y="138" text-anchor="middle" font-family="JetBrains Mono" font-size="16" fill="#7a95c8">Điều phối</text>
+        <!-- Node 1 -->
+        <circle cx="150" cy="330" r="70" fill="#111d35" stroke="#4f8eff" stroke-width="2"/>
+        <circle cx="150" cy="330" r="70" fill="rgba(79,142,255,.08)"/>
+        <text x="150" y="322" text-anchor="middle" font-family="JetBrains Mono" font-size="20" fill="#4f8eff" font-weight="600">NODE 1</text>
+        <text x="150" y="348" text-anchor="middle" font-family="JetBrains Mono" font-size="15" fill="#7a95c8">Emp A (5k)</text>
+        <!-- Node 3 -->
+        <circle cx="510" cy="330" r="70" fill="#111d35" stroke="#4f8eff" stroke-width="2"/>
+        <circle cx="510" cy="330" r="70" fill="rgba(79,142,255,.08)"/>
+        <text x="510" y="322" text-anchor="middle" font-family="JetBrains Mono" font-size="20" fill="#4f8eff" font-weight="600">NODE 3</text>
+        <text x="510" y="348" text-anchor="middle" font-family="JetBrains Mono" font-size="15" fill="#7a95c8">Emp B (5k)</text>
+        <!-- Node 2 -->
+        <circle cx="330" cy="540" r="70" fill="#111d35" stroke="#00e5c8" stroke-width="2"/>
+        <circle cx="330" cy="540" r="70" fill="rgba(0,229,200,.08)"/>
+        <text x="330" y="532" text-anchor="middle" font-family="JetBrains Mono" font-size="20" fill="#00e5c8" font-weight="600">NODE 2</text>
+        <text x="330" y="558" text-anchor="middle" font-family="JetBrains Mono" font-size="15" fill="#7a95c8">Asgn (50k)</text>
+        <!-- glow halos (blurred) -->
+        <circle cx="330" cy="120" r="74" stroke="#ffb740" stroke-width="6" opacity=".25" filter="url(#gf)"/>
+        <circle cx="330" cy="540" r="74" stroke="#00e5c8" stroke-width="6" opacity=".25" filter="url(#gf)"/>
+      </svg>
+    </div>
+  </div>
+  <div class="slide-num">01 / 12</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 2 — PROBLEM STATEMENT
+     ==================================================== -->
+<div class="slide" id="s2">
+  <div style="padding: 60px 100px; position:relative; z-index:1;">
+    <div class="tag anim-1">BÀI TOÁN</div>
+    <h2 class="section-title anim-2" style="margin-bottom:12px;">Tại sao cần tối ưu<br>truy vấn phân tán?</h2>
+    <div class="divider anim-3" style="margin-bottom:20px;"></div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-top:12px;">
+      <div class="info-card anim-l1" style="padding:24px 32px;">
+        <h3 class="card-title" style="margin-bottom:8px;">Chi phí tổng quát</h3>
+        <div class="formula-box" style="margin-bottom:12px; font-size:28px; padding:20px 28px;">
+          Total_Cost = <span>C<sub>CPU</sub></span> + C<sub>I/O</sub> + <span>C<sub>COMM</sub></span>
+        </div>
+        <p class="body" style="font-size:26px;">
+          Trong mạng WAN hoặc băng thông giới hạn,
+          <strong style="color:var(--accent4)">C<sub>COMM</sub></strong> thường
+          <strong style="color:var(--accent4)">lớn hơn hàng nghìn lần</strong>
+          so với C<sub>I/O</sub> hay C<sub>CPU</sub> cục bộ.
+        </p>
+      </div>
+
+      <div class="info-card anim-r1" style="padding:24px 32px;">
+        <h3 class="card-title" style="margin-bottom:8px;">Mô hình chi phí mạng</h3>
+        <div class="formula-box" style="margin-bottom:12px; font-size:28px; padding:20px 28px;">
+          C<sub>COMM</sub> = (<span>C<sub>msg</sub></span> × #msgs) + (<span>C<sub>tr</sub></span> × #bytes)
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
+          <p class="body" style="font-size:24px;"><span style="color:var(--accent3)">C<sub>msg</sub></span> — Chi phí khởi tạo tin nhắn (Network Latency)</p>
+          <p class="body" style="font-size:24px;"><span style="color:var(--accent3)">C<sub>tr</sub></span> — Chi phí truyền tải mỗi byte (Bandwidth)</p>
+        </div>
+      </div>
+
+      <div class="info-card anim-l2" style="grid-column:1/-1; padding:24px 32px;">
+        <h3 class="card-title" style="margin-bottom:8px;">Câu hỏi nghiên cứu</h3>
+        <p class="lead" style="font-size:28px;">
+          Làm thế nào để <strong style="color:var(--accent1)">giảm thiểu #bytes</strong> truyền qua mạng
+          khi thực hiện JOIN giữa bảng <strong style="color:var(--accent3)">Employees</strong> (10k dòng)
+          và <strong style="color:var(--accent3)">Assignments</strong> (50k dòng) trên 3 node phân tán?
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="slide-num">02 / 12</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 3 — DATASET & SCHEMA
+     ==================================================== -->
+<div class="slide" id="s3">
+  <div style="padding: 90px 120px; position:relative; z-index:1;">
+    <div class="tag anim-1">TẬP DỮ LIỆU</div>
+    <h2 class="section-title anim-2">Dataset Specification</h2>
+    <div class="divider anim-3"></div>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:32px; margin-top:20px;">
+      <div class="info-card anim-1" style="border-color:var(--accent1);">
+        <div class="node-badge" style="margin-bottom:20px;"><span class="dot dot-blue"></span>Bảng Employees</div>
+        <p class="body" style="font-size:30px; margin-bottom:16px; color:var(--accent1);">10,000 dòng</p>
+        <div class="code-block" style="font-size:26px; padding:20px 24px;">
+          EmpID<br>
+          <span class="cm">Name</span><br>
+          <span class="cm">Department</span><br>
+          <span class="cm">Email</span><br>
+          <span class="cm">Salary</span>
+        </div>
+        <p class="body" style="margin-top:16px; font-size:26px;">Sinh ngẫu nhiên bằng <strong style="color:var(--accent3)">Faker</strong></p>
+      </div>
+
+      <div class="info-card anim-2" style="border-color:var(--accent3);">
+        <div class="node-badge" style="margin-bottom:20px;"><span class="dot dot-cyan"></span>Bảng Assignments</div>
+        <p class="body" style="font-size:30px; margin-bottom:16px; color:var(--accent3);">50,000 dòng</p>
+        <div class="code-block" style="font-size:26px; padding:20px 24px;">
+          AssignID<br>
+          <span class="kw">EmpID</span> <span class="cm">← FK</span><br>
+          <span class="cm">ProjectID</span><br>
+          <span class="cm">HoursLogged</span>
+        </div>
+        <p class="body" style="margin-top:16px; font-size:26px;">~7,985 EmpID duy nhất</p>
+      </div>
+
+      <div class="info-card anim-3" style="border-color:var(--accent4);">
+        <div class="node-badge" style="margin-bottom:20px;"><span class="dot dot-amber"></span>Phân mảnh ngang</div>
+        <p class="body" style="font-size:28px; margin-bottom:20px; color:var(--muted);">Horizontal Fragmentation</p>
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div style="background:rgba(79,142,255,.1); border:1px solid var(--accent1); border-radius:8px; padding:14px 20px;">
+            <p style="font:600 26px var(--mono); color:var(--accent1);">Node 1 — 5,000 rows</p>
+            <p style="font:400 25px var(--mono); color:var(--muted);">Employee [0 – 4999]</p>
+          </div>
+          <div style="background:rgba(79,142,255,.1); border:1px solid var(--accent1); border-radius:8px; padding:14px 20px;">
+            <p style="font:600 26px var(--mono); color:var(--accent1);">Node 3 — 5,000 rows</p>
+            <p style="font:400 25px var(--mono); color:var(--muted);">Employee [5000 – 9999]</p>
+          </div>
+          <div style="background:rgba(0,229,200,.08); border:1px solid var(--accent3); border-radius:8px; padding:14px 20px;">
+            <p style="font:600 26px var(--mono); color:var(--accent3);">Node 2 — 50,000 rows</p>
+            <p style="font:400 25px var(--mono); color:var(--muted);">All Assignments</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-num">03 / 12</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 4 — SYSTEM ARCHITECTURE
+     ==================================================== -->
+<div class="slide" id="s4">
+  <div style="display:flex; height:100%; position:relative; z-index:1; overflow:hidden;">
+    <!-- Left column: fixed width, all content fits in 1080px height -->
+    <div style="padding:56px 60px 56px 80px; flex:0 0 660px; display:flex; flex-direction:column; justify-content:center;">
+      <div class="tag anim-1" style="margin-bottom:18px;">KIẾN TRÚC HỆ THỐNG</div>
+      <h2 class="section-title anim-2" style="font-size:52px; margin-bottom:16px;">4-Node Simulated<br>Architecture</h2>
+      <div class="divider anim-3" style="margin-bottom:20px;"></div>
+      <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:20px;">
+        <div class="node-badge anim-1" style="font-size:26px; padding:14px 22px;"><span class="dot dot-amber"></span>Coordinator — DQP Engine</div>
+        <div class="node-badge anim-2" style="font-size:26px; padding:14px 22px;"><span class="dot dot-blue"></span>Node 1 — Employee Site A (FastAPI)</div>
+        <div class="node-badge anim-3" style="font-size:26px; padding:14px 22px;"><span class="dot dot-blue"></span>Node 3 — Employee Site B (FastAPI)</div>
+        <div class="node-badge anim-4" style="font-size:26px; padding:14px 22px;"><span class="dot dot-cyan"></span>Node 2 — Assignment Site (FastAPI)</div>
+      </div>
+      <div class="info-card anim-5" style="padding:20px 28px;">
+        <p class="body" style="font-size:26px; line-height:1.8;">
+          <span style="color:var(--accent4)">Tech Stack:</span> Python 3.10+ · FastAPI · Pandas · HTTPX<br>
+          <span style="color:var(--accent4)">Storage:</span> Local CSV → RAM (Pandas DataFrame)<br>
+          <span style="color:var(--accent4)">Protocol:</span> HTTP/REST · JSON payload
+        </p>
+      </div>
+    </div>
+
+    <!-- Right: SVG diagram scaled to fit remaining space -->
+    <div style="flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+      <svg width="820" height="820" viewBox="0 0 900 820" fill="none" xmlns="http://www.w3.org/2000/svg" class="anim-r1" style="max-width:100%; max-height:100%;">
+        <defs>
+          <marker id="arr" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" fill="#4f8eff" opacity=".8"/>
+          </marker>
+          <marker id="arrc" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" fill="#00e5c8" opacity=".8"/>
+          </marker>
+          <filter id="glow2"><feGaussianBlur stdDeviation="8" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+
+        <!-- Coordinator box -->
+        <rect x="300" y="50" width="300" height="100" rx="16" fill="#111d35" stroke="#ffb740" stroke-width="2"/>
+        <rect x="300" y="50" width="300" height="100" rx="16" fill="rgba(255,183,64,.06)"/>
+        <text x="450" y="95" text-anchor="middle" font-family="JetBrains Mono" font-size="22" fill="#ffb740" font-weight="700">COORDINATOR</text>
+        <text x="450" y="123" text-anchor="middle" font-family="JetBrains Mono" font-size="17" fill="#7a95c8">:8000</text>
+
+        <!-- Lines coord → nodes -->
+        <line x1="360" y1="150" x2="160" y2="370" stroke="#4f8eff" stroke-width="1.5" stroke-dasharray="10 6" marker-end="url(#arr)"/>
+        <line x1="450" y1="150" x2="450" y2="370" stroke="#00e5c8" stroke-width="1.5" stroke-dasharray="10 6" marker-end="url(#arrc)"/>
+        <line x1="540" y1="150" x2="740" y2="370" stroke="#4f8eff" stroke-width="1.5" stroke-dasharray="10 6" marker-end="url(#arr)"/>
+
+        <!-- Arrow labels -->
+        <text x="210" y="270" font-family="JetBrains Mono" font-size="15" fill="#4f8eff" opacity=".8">broadcast EmpIDs</text>
+        <text x="460" y="270" font-family="JetBrains Mono" font-size="15" fill="#00e5c8" opacity=".8">get keys</text>
+
+        <!-- Node 1 -->
+        <rect x="40" y="370" width="240" height="110" rx="14" fill="#111d35" stroke="#4f8eff" stroke-width="2"/>
+        <rect x="40" y="370" width="240" height="110" rx="14" fill="rgba(79,142,255,.07)"/>
+        <text x="160" y="416" text-anchor="middle" font-family="JetBrains Mono" font-size="21" fill="#4f8eff" font-weight="700">NODE 1</text>
+        <text x="160" y="441" text-anchor="middle" font-family="JetBrains Mono" font-size="15" fill="#7a95c8">Employee A · :8001</text>
+        <text x="160" y="463" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="#3d5580">5,000 rows</text>
+
+        <!-- Node 2 -->
+        <rect x="330" y="370" width="240" height="110" rx="14" fill="#111d35" stroke="#00e5c8" stroke-width="2"/>
+        <rect x="330" y="370" width="240" height="110" rx="14" fill="rgba(0,229,200,.07)"/>
+        <text x="450" y="416" text-anchor="middle" font-family="JetBrains Mono" font-size="21" fill="#00e5c8" font-weight="700">NODE 2</text>
+        <text x="450" y="441" text-anchor="middle" font-family="JetBrains Mono" font-size="15" fill="#7a95c8">Assignment · :8002</text>
+        <text x="450" y="463" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="#3d5580">50,000 rows</text>
+
+        <!-- Node 3 -->
+        <rect x="620" y="370" width="240" height="110" rx="14" fill="#111d35" stroke="#4f8eff" stroke-width="2"/>
+        <rect x="620" y="370" width="240" height="110" rx="14" fill="rgba(79,142,255,.07)"/>
+        <text x="740" y="416" text-anchor="middle" font-family="JetBrains Mono" font-size="21" fill="#4f8eff" font-weight="700">NODE 3</text>
+        <text x="740" y="441" text-anchor="middle" font-family="JetBrains Mono" font-size="15" fill="#7a95c8">Employee B · :8003</text>
+        <text x="740" y="463" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="#3d5580">5,000 rows</text>
+
+        <!-- Return arrows (bottom) -->
+        <line x1="160" y1="480" x2="360" y2="600" stroke="#4f8eff" stroke-width="1" stroke-dasharray="6 5" opacity=".5"/>
+        <line x1="450" y1="480" x2="450" y2="600" stroke="#00e5c8" stroke-width="1" stroke-dasharray="6 5" opacity=".5"/>
+        <line x1="740" y1="480" x2="540" y2="600" stroke="#4f8eff" stroke-width="1" stroke-dasharray="6 5" opacity=".5"/>
+
+        <!-- Result collector -->
+        <rect x="300" y="600" width="300" height="80" rx="12" fill="rgba(30,48,96,.5)" stroke="var(--border)" stroke-width="1.5"/>
+        <text x="450" y="639" text-anchor="middle" font-family="JetBrains Mono" font-size="18" fill="#7a95c8">Result Union</text>
+        <text x="450" y="662" text-anchor="middle" font-family="JetBrains Mono" font-size="15" fill="#3d5580">HTTP / REST (JSON)</text>
+      </svg>
+    </div>
+  </div>
+  <div class="slide-num">04 / 12</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 5 — STANDARD JOIN
+     ==================================================== -->
+<div class="slide" id="s5">
+  <div style="padding:90px 120px; position:relative; z-index:1;">
+    <div class="tag amber anim-1">PHƯƠNG PHÁP 1</div>
+    <h2 class="section-title anim-2">Standard Join<br><span style="color:var(--muted); font-size:50px;">Ship-Whole-Table</span></h2>
+    <div class="divider anim-3"></div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:16px;">
+      <div style="display:flex; flex-direction:column; gap:20px;">
+        <div class="trace-step anim-1" style="border-color:var(--accent4);">
+          <div class="step-num" style="background:var(--accent4); color:#000;">1</div>
+          <div class="step-body">
+            <div class="step-title">Node 2 gửi TOÀN BỘ bảng Assignments</div>
+            <div class="step-sub">50,000 rows × 80 bytes = <strong style="color:#ff4040">4,000,000 bytes</strong></div>
+          </div>
+        </div>
+        <div class="trace-step anim-2">
+          <div class="step-num" style="background:#666; color:#fff;">2</div>
+          <div class="step-body">
+            <div class="step-title">Node 1 gửi toàn bộ Employee Part A</div>
+            <div class="step-sub">5,000 rows × ~130 bytes ≈ 645,000 bytes</div>
+          </div>
+        </div>
+        <div class="trace-step anim-3">
+          <div class="step-num" style="background:#666; color:#fff;">3</div>
+          <div class="step-body">
+            <div class="step-title">Node 3 gửi toàn bộ Employee Part B</div>
+            <div class="step-sub">5,000 rows × ~130 bytes ≈ 646,000 bytes</div>
+          </div>
+        </div>
+        <div class="trace-step anim-4">
+          <div class="step-num" style="background:#ff4040; color:#fff;">4</div>
+          <div class="step-body">
+            <div class="step-title">Coordinator thực hiện JOIN cục bộ</div>
+            <div class="step-sub" style="color:#ff6060;">CPU heavy — toàn bộ dữ liệu đã qua mạng</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:24px;">
+        <div class="info-card anim-r1" style="border-color:#ff4040;">
+          <h3 class="card-title" style="color:#ff6060;">Tổng bytes truyền tải</h3>
+          <div style="display:flex; align-items:baseline; gap:16px; margin:16px 0;">
+            <span class="stat-big" style="color:#ff4040; font-size:72px;">5.18</span>
+            <span style="font:600 44px var(--sans); color:#ff6060;">MB</span>
+          </div>
+          <p class="body" style="font-size:26px;">Size(S) + Size(R₁) + Size(R₃) = ~5,430,000 bytes</p>
+        </div>
+        <div class="info-card anim-r2">
+          <h3 class="card-title">Nhược điểm chính</h3>
+          <p class="body" style="font-size:28px; margin-bottom:12px;">
+            ❌ Gửi cả cột <strong style="color:var(--accent4)">HoursLogged</strong> không cần thiết cho JOIN
+          </p>
+          <p class="body" style="font-size:28px; margin-bottom:12px;">
+            ❌ Lãng phí băng thông nghiêm trọng
+          </p>
+          <p class="body" style="font-size:28px;">
+            ❌ C<sub>tr</sub> × 4,000,000 = bottleneck lớn nhất
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-num">05 / 12</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 6 — SEMI-JOIN ALGORITHM
+     ==================================================== -->
+<div class="slide" id="s6">
+  <div style="padding:80px 120px; position:relative; z-index:1;">
+    <div class="tag anim-1">PHƯƠNG PHÁP 2</div>
+    <h2 class="section-title anim-2">Semi-Join &nbsp;<span style="color:var(--accent1)">R ⋉ S</span></h2>
+    <div class="divider anim-3"></div>
+
+    <div style="display:grid; grid-template-columns:1.1fr 1fr; gap:40px; margin-top:16px;">
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div class="trace-step active-step anim-1">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Projection tại Node 2</div>
+            <div class="step-sub">Chiếu EmpID, loại bỏ trùng lặp → S' (7,985 unique IDs)</div>
+          </div>
+        </div>
+        <div class="trace-step active-step anim-2">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Transfer S' → Coordinator</div>
+            <div class="step-sub" style="color:var(--accent3);">7,985 × 10 bytes = <strong>79,850 bytes</strong> ✓</div>
+          </div>
+        </div>
+        <div class="trace-step active-step anim-3">
+          <div class="step-num v">3</div>
+          <div class="step-body">
+            <div class="step-title">Broadcast S' → Node 1 &amp; Node 3</div>
+            <div class="step-sub">Coordinator phát sóng danh sách EmpID đến cả hai node</div>
+          </div>
+        </div>
+        <div class="trace-step active-step anim-4">
+          <div class="step-num c">4</div>
+          <div class="step-body">
+            <div class="step-title">Filtering song song tại Node 1 &amp; 3</div>
+            <div class="step-sub">Intra-query Parallelism — CCPU giảm ½</div>
+          </div>
+        </div>
+        <div class="trace-step active-step anim-5">
+          <div class="step-num c">5</div>
+          <div class="step-body">
+            <div class="step-title">Trả kết quả R'₁, R'₃ → Coordinator → Union</div>
+            <div class="step-sub" style="color:var(--accent3);">Chỉ gửi matched rows — ~1.25 MB tổng cộng</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:24px;">
+        <div class="info-card anim-r1 highlight">
+          <h3 class="card-title">Tổng bytes truyền tải</h3>
+          <div style="display:flex; align-items:baseline; gap:16px; margin:16px 0;">
+            <span class="stat-big" style="color:var(--accent1); font-size:72px;">1.25</span>
+            <span style="font:600 44px var(--sans); color:var(--accent3);">MB</span>
+          </div>
+          <p class="body" style="font-size:26px;">Size(S') + Size(R'₁) + Size(R'₃) ≈ 1,310,936 bytes</p>
+        </div>
+        <div class="info-card anim-r2">
+          <h3 class="card-title">Ưu điểm</h3>
+          <p class="body" style="font-size:28px; margin-bottom:10px;">
+            ✅ Chỉ gửi <strong style="color:var(--accent3)">khóa ngoại</strong>, không gửi cột thừa
+          </p>
+          <p class="body" style="font-size:28px; margin-bottom:10px;">
+            ✅ Xử lý <strong style="color:var(--accent3)">song song</strong> tại 2 node
+          </p>
+          <p class="body" style="font-size:28px;">
+            ✅ Size Reduction Factor ≈ <strong style="color:var(--accent1)">75.87%</strong>
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-num">06 / 12</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 7 — COMPARISON (RESULTS)
+     ==================================================== -->
+<div class="slide" id="s7">
+  <div style="padding:90px 120px; position:relative; z-index:1;">
+    <div class="tag anim-1">KẾT QUẢ THỰC NGHIỆM</div>
+    <h2 class="section-title anim-2">So sánh hiệu suất</h2>
+    <div class="divider anim-3"></div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:48px; margin-top:20px; align-items:start;">
+      <div style="display:flex; flex-direction:column; gap:24px;">
+        <!-- Bytes bar chart -->
+        <div class="info-card anim-l1">
+          <h3 class="card-title" style="margin-bottom:24px;">Bytes Transferred</h3>
+          <div class="bar-wrap">
+            <div class="bar-label">Standard Join</div>
+            <div class="bar-track" style="margin-bottom:16px;">
+              <div class="bar-fill std" style="--w:100%;">5.18 MB</div>
+            </div>
+            <div class="bar-label">Semi-Join</div>
+            <div class="bar-track">
+              <div class="bar-fill semi" style="--w:23%;">1.25 MB</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Time bar chart -->
+        <div class="info-card anim-l2">
+          <h3 class="card-title" style="margin-bottom:24px;">Execution Time</h3>
+          <div class="bar-wrap">
+            <div class="bar-label">Standard Join</div>
+            <div class="bar-track" style="margin-bottom:16px;">
+              <div class="bar-fill std" style="--w:100%;">0.625 s</div>
+            </div>
+            <div class="bar-label">Semi-Join</div>
+            <div class="bar-track">
+              <div class="bar-fill semi" style="width:0; --w:18.2%; transition: width 1.5s .3s ease;">0.114 s</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Big stats -->
+      <div style="display:flex; flex-direction:column; gap:28px;">
+        <div class="info-card highlight anim-r1" style="text-align:center; padding:48px;">
+          <div class="stat-big glowtext">75.87%</div>
+          <div class="stat-label">Bandwidth Saved (3.93 MB)</div>
+        </div>
+        <div class="info-card anim-r2" style="text-align:center; padding:48px; border-color:var(--accent3);">
+          <div class="stat-big" style="color:var(--accent3);">5.47×</div>
+          <div class="stat-label">Speedup (Execution Time)</div>
+        </div>
+        <div class="info-card anim-5" style="text-align:center; padding:32px; border-color:var(--accent4);">
+          <div style="font:700 42px var(--sans); color:var(--accent4);">~77%</div>
+          <div class="stat-label">Size Reduction Factor (lý thuyết Özsu)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-num">07 / 12</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 8 — COST MODEL ANALYSIS
+     ==================================================== -->
+<div class="slide" id="s8">
+  <div style="padding:52px 100px 52px 100px; position:relative; z-index:1; height:100%; display:flex; flex-direction:column;">
+    <div style="display:flex; align-items:center; gap:24px; margin-bottom:10px;">
+      <div class="tag violet anim-1" style="margin-bottom:0;">LÝ THUYẾT ÖZSU</div>
+      <h2 class="section-title anim-2" style="font-size:58px; margin-bottom:0;">Cost Model Analysis</h2>
+    </div>
+    <div class="divider anim-3" style="margin-bottom:16px;"></div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:32px; flex:1; min-height:0;">
+      <!-- Left column -->
+      <div style="display:flex; flex-direction:column; gap:16px; min-height:0;">
+        <div class="formula-box anim-l1" style="font-size:28px; padding:20px 28px;">
+          Total_Cost = (C<sub>msg</sub> × #msgs) + (C<sub>tr</sub> × #bytes)
+        </div>
+
+        <div class="info-card anim-l2" style="padding:24px 32px;">
+          <h3 class="card-title" style="font-size:30px; margin-bottom:10px;">Parameters</h3>
+          <table style="width:100%; border-collapse:collapse; font:400 26px var(--mono);">
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:8px 0; color:var(--accent3);">C<sub>msg</sub></td>
+              <td style="padding:8px 0; color:var(--muted);">Latency</td>
+              <td style="padding:8px 0; color:var(--text);">10 ms / message</td>
+            </tr>
+            <tr>
+              <td style="padding:8px 0; color:var(--accent3);">C<sub>tr</sub></td>
+              <td style="padding:8px 0; color:var(--muted);">Bandwidth</td>
+              <td style="padding:8px 0; color:var(--text);">0.001 ms / byte</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="info-card anim-1" style="border-color:var(--accent4); padding:24px 32px; flex:1;">
+          <h3 class="card-title" style="font-size:28px; color:var(--accent4); margin-bottom:10px;">Tại sao in-memory?</h3>
+          <p class="body" style="font-size:26px;">
+            Tải CSV vào RAM → loại bỏ C<sub>I/O</sub> khỏi phương trình.<br>
+            Cho phép đo lường C<sub>COMM</sub> <strong style="color:var(--accent1)">thuần túy</strong>.
+          </p>
+        </div>
+      </div>
+
+      <!-- Right column -->
+      <div style="display:flex; flex-direction:column; gap:16px; min-height:0;">
+        <div class="info-card anim-r1" style="border-color:#ff4040; padding:22px 32px;">
+          <h3 class="card-title" style="font-size:28px; color:#ff6060; margin-bottom:8px;">Standard Join Comm Cost</h3>
+          <div class="formula-box" style="font-size:26px; margin:10px 0; padding:14px 20px; border-color:#ff4040;">
+            (10 × 3) + (0.001 × 5,432,527)
+          </div>
+          <div style="font:700 40px var(--sans); color:#ff4040; text-align:center;">= 5,462.53 ms</div>
+        </div>
+
+        <div class="info-card anim-r2 highlight" style="padding:22px 32px;">
+          <h3 class="card-title" style="font-size:28px; margin-bottom:8px;">Semi-Join Comm Cost</h3>
+          <div class="formula-box" style="font-size:26px; margin:10px 0; padding:14px 20px;">
+            (10 × 5) + (0.001 × 1,310,936)
+          </div>
+          <div style="font:700 40px var(--sans); color:var(--accent1); text-align:center;">= 1,360.94 ms</div>
+        </div>
+
+        <div class="info-card anim-5" style="border-color:var(--accent3); text-align:center; padding:22px 32px; flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+          <p class="body" style="font-size:26px; color:var(--muted); margin-bottom:6px;">Cost reduction</p>
+          <div style="font:700 56px var(--sans); color:var(--accent3);">−75.1%</div>
+          <p class="body" style="font-size:26px; color:var(--muted); margin-top:6px;">thêm 2 message → tiết kiệm 75% bandwidth</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-num">08 / 12</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 9 — HORIZONTAL FRAGMENTATION
+     ==================================================== -->
+<div class="slide" id="s9">
+  <div style="padding:90px 120px; position:relative; z-index:1;">
+    <div class="tag anim-1">THIẾT KẾ KIẾN TRÚC</div>
+    <h2 class="section-title anim-2">Horizontal Fragmentation<br><span style="font-size:46px; color:var(--muted);">& Intra-query Parallelism</span></h2>
+    <div class="divider anim-3"></div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:24px;">
+      <div style="display:flex; flex-direction:column; gap:20px;">
+        <div class="info-card anim-l1">
+          <h3 class="card-title">Lý thuyết (Özsu &amp; Valduriez)</h3>
+          <p class="body" style="font-size:28px;">
+            Phân mảnh dữ liệu (<em>Data Fragmentation</em>) giúp tăng mức độ thực thi
+            <strong style="color:var(--accent1)">song song</strong> và cải thiện
+            <strong style="color:var(--accent1)">Response Time</strong>.
+          </p>
+        </div>
+        <div class="info-card anim-l2" style="border-color:var(--accent1);">
+          <h3 class="card-title">Thiết kế thực tế</h3>
+          <p class="body" style="font-size:28px; margin-bottom:16px;">
+            Coordinator <strong style="color:var(--accent3)">broadcast</strong> S' đến cả Node 1 và Node 3 đồng thời.
+          </p>
+          <p class="body" style="font-size:28px;">
+            Hai node kiểm tra 5,000 bản ghi <strong style="color:var(--accent1)">song song</strong> thay vì Node 1 xử lý đơn độc 10,000 bản ghi.
+          </p>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:20px; align-items:center; justify-content:center;">
+        <svg width="640" height="440" viewBox="0 0 640 440" fill="none" class="anim-r1">
+          <!-- Without parallelism -->
+          <rect x="40" y="40" width="240" height="80" rx="10" fill="#111d35" stroke="#666" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <text x="160" y="78" text-anchor="middle" font-family="JetBrains Mono" font-size="18" fill="#666">Node 1 alone</text>
+          <text x="160" y="102" text-anchor="middle" font-family="JetBrains Mono" font-size="16" fill="#444">10,000 rows (serial)</text>
+
+          <rect x="40" y="160" width="240" height="60" rx="8" fill="rgba(255,64,64,.15)" stroke="#ff4040" stroke-width="1.5"/>
+          <text x="160" y="196" text-anchor="middle" font-family="JetBrains Mono" font-size="16" fill="#ff6060">CCPU × 10,000</text>
+
+          <!-- Arrow -->
+          <text x="300" y="220" font-family="JetBrains Mono" font-size="30" fill="#3d5580">→</text>
+
+          <!-- With parallelism -->
+          <rect x="360" y="40" width="240" height="80" rx="10" fill="rgba(79,142,255,.08)" stroke="#4f8eff" stroke-width="1.5"/>
+          <text x="480" y="70" text-anchor="middle" font-family="JetBrains Mono" font-size="18" fill="#4f8eff">Node 1  +  Node 3</text>
+          <text x="480" y="96" text-anchor="middle" font-family="JetBrains Mono" font-size="16" fill="#7a95c8">5,000 each (parallel)</text>
+
+          <rect x="360" y="160" width="100" height="60" rx="8" fill="rgba(0,229,200,.15)" stroke="#00e5c8" stroke-width="1.5"/>
+          <text x="410" y="195" text-anchor="middle" font-family="JetBrains Mono" font-size="15" fill="#00e5c8">N1: 5k</text>
+
+          <rect x="500" y="160" width="100" height="60" rx="8" fill="rgba(0,229,200,.15)" stroke="#00e5c8" stroke-width="1.5"/>
+          <text x="550" y="195" text-anchor="middle" font-family="JetBrains Mono" font-size="15" fill="#00e5c8">N3: 5k</text>
+
+          <!-- Result -->
+          <text x="160" y="300" text-anchor="middle" font-family="JetBrains Mono" font-size="22" fill="#666">Time: T</text>
+          <text x="480" y="300" text-anchor="middle" font-family="JetBrains Mono" font-size="22" fill="#00e5c8" font-weight="700">Time: T/2 ✓</text>
+
+          <text x="320" y="390" text-anchor="middle" font-family="Syne" font-size="22" fill="#7a95c8">CCPU giảm ½ — Response Time tối ưu hóa</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+  <div class="slide-num">09 / 12</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 10 — FAULT TOLERANCE
+     ==================================================== -->
+<div class="slide" id="s10">
+  <div style="padding:50px 100px 55px; position:relative; z-index:1;">
+    <div class="tag amber anim-1">ĐỘ TIN CẬY</div>
+    <h2 class="section-title anim-2" style="margin-bottom:12px;">Fault Tolerance &amp;<br>Failure Scenario</h2>
+    <div class="divider anim-3" style="margin-bottom:16px;"></div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-top:12px;">
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div class="info-card anim-l1" style="border-color:var(--accent4); padding:24px 32px;">
+          <h3 class="card-title" style="color:var(--accent4); margin-bottom:8px;">The "Failure" Scenario</h3>
+          <p class="body" style="font-size:26px; margin-bottom:8px;">
+            Kill <strong style="color:#ff4040">Node 2</strong> (Assignment Node) trong lúc Coordinator đang gửi request.
+          </p>
+          <p class="body" style="font-size:26px;">
+            Kết quả mong đợi: Hệ thống <strong style="color:var(--accent3)">timeout / catch exception</strong>
+            thay vì treo toàn bộ (hang indefinitely).
+          </p>
+        </div>
+
+        <div class="code-block anim-l2" style="font-size:24px; padding:14px 24px; line-height:1.6;">
+          <span class="kw">try</span>:<br>
+          &nbsp;&nbsp;response = <span class="fn">httpx.get</span>(<span class="str">node2_url</span>, timeout=<span class="str">5.0</span>)<br>
+          <span class="kw">except</span> httpx.<span class="fn">ConnectError</span>:<br>
+          &nbsp;&nbsp;<span class="cm"># Node 2 is down</span><br>
+          &nbsp;&nbsp;<span class="fn">abort_transaction</span>()<br>
+          &nbsp;&nbsp;<span class="kw">return</span> <span class="str">"Transaction Aborted"</span>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div class="info-card anim-r1" style="padding:24px 32px;">
+          <h3 class="card-title" style="margin-bottom:8px;">Cơ chế bảo vệ</h3>
+          <div style="display:flex; flex-direction:column; gap:10px; margin-top:4px;">
+            <div style="display:flex; gap:12px; align-items:center; padding:12px; background:rgba(0,229,200,.06); border-radius:8px; border:1px solid rgba(0,229,200,.2);">
+              <span style="font-size:28px;">⏱</span>
+              <div>
+                <p style="font:600 26px var(--sans); color:var(--text);">Timeout Mechanism</p>
+                <p style="font:400 24px var(--mono); color:var(--muted);">5 giây mỗi request</p>
+              </div>
+            </div>
+            <div style="display:flex; gap:12px; align-items:center; padding:12px; background:rgba(0,229,200,.06); border-radius:8px; border:1px solid rgba(0,229,200,.2);">
+              <span style="font-size:28px;">🔌</span>
+              <div>
+                <p style="font:600 26px var(--sans); color:var(--text);">ConnectionError Catch</p>
+                <p style="font:400 24px var(--mono); color:var(--muted);">Phát hiện node bị sập</p>
+              </div>
+            </div>
+            <div style="display:flex; gap:12px; align-items:center; padding:12px; background:rgba(0,229,200,.06); border-radius:8px; border:1px solid rgba(0,229,200,.2);">
+              <span style="font-size:28px;">🛑</span>
+              <div>
+                <p style="font:600 26px var(--sans); color:var(--text);">Transaction Abort</p>
+                <p style="font:400 24px var(--mono); color:var(--muted);">An toàn hủy bỏ thay vì treo</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="info-card anim-r2 highlight" style="padding:20px 28px;">
+          <p class="body" style="font-size:28px; text-align:center;">
+            Minh chứng khả năng <strong style="color:var(--accent1)">Fault Tolerance</strong> nền tảng trong
+            kiến trúc Distributed Database System
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-num">10 / 12</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 11 — DEMO: DASHBOARD
+     ==================================================== -->
+<div class="slide" id="s11">
+  <div style="padding:50px 80px 30px; position:relative; z-index:1; height:100%; display:flex; flex-direction:column;">
+    <div class="tag anim-1">DEMO</div>
+    <h2 class="section-title anim-2" style="font-size:52px; margin-bottom:8px;">Dashboard chính</h2>
+    <div class="divider anim-3" style="margin-bottom:10px;"></div>
+    <p class="body anim-4" style="font-size:26px; margin-bottom:8px;">
+      Run Standard Join / Run Semi-Join · Metrics cards · Execution Trace · Cost Model
+    </p>
+    <div style="flex:1; display:flex; align-items:center; justify-content:center; min-height:0; padding:0 40px 20px; background:var(--card); border-radius:12px;">
+      <img src="static/main_dash_board.png" style="max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; border-radius:12px; box-shadow:0 0 40px rgba(79,142,255,.25);" alt="Dashboard"/>
+    </div>
+  </div>
+  <div class="slide-num">11 / 14</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 12 — DEMO: STANDARD JOIN
+     ==================================================== -->
+<div class="slide" id="s12">
+  <div style="padding:50px 80px 30px; position:relative; z-index:1; height:100%; display:flex; flex-direction:column;">
+    <div class="tag amber anim-1">DEMO</div>
+    <h2 class="section-title anim-2" style="font-size:52px; margin-bottom:8px;">Standard Join — <span style="color:#ff6060;">5.18 MB</span></h2>
+    <div class="divider anim-3" style="margin-bottom:10px;"></div>
+    <p class="body anim-4" style="font-size:26px; margin-bottom:8px;">
+      Execution trace · Cost analysis · 5,462 ms comm cost
+    </p>
+    <div style="flex:1; display:flex; align-items:center; justify-content:center; min-height:0; padding:0 40px 20px; background:var(--card); border-radius:12px;">
+      <img src="static/standard_join.png" style="max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; border-radius:12px; box-shadow:0 0 40px rgba(255,64,64,.25);" alt="Standard Join"/>
+    </div>
+  </div>
+  <div class="slide-num">12 / 14</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 13 — DEMO: SEMI-JOIN
+     ==================================================== -->
+<div class="slide" id="s13">
+  <div style="padding:50px 80px 30px; position:relative; z-index:1; height:100%; display:flex; flex-direction:column;">
+    <div class="tag amber anim-1">DEMO</div>
+    <h2 class="section-title anim-2" style="font-size:52px; margin-bottom:8px;">Semi-Join — <span style="color:var(--accent3);">1.25 MB</span> · <span style="color:var(--accent1);">5.47× faster</span></h2>
+    <div class="divider anim-3" style="margin-bottom:10px;"></div>
+    <p class="body anim-4" style="font-size:26px; margin-bottom:8px;">
+      5-step trace · 1,360 ms comm cost · 75.87% saved
+    </p>
+    <div style="flex:1; display:flex; align-items:center; justify-content:center; min-height:0; padding:0 40px 20px; background:var(--card); border-radius:12px;">
+      <img src="static/semi_join.png" style="max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; border-radius:12px; box-shadow:0 0 40px rgba(0,229,200,.25);" alt="Semi-Join"/>
+    </div>
+    <!-- GitHub link -->
+    <div style="text-align:center; padding-bottom:10px;">
+      <span style="font:400 26px var(--mono); color:var(--muted);">Source code: </span>
+      <span style="font:600 26px var(--mono); color:var(--accent1);">github.com/WilliamsHugh/Distributed-Semi-Join-Implementation</span>
+    </div>
+  </div>
+  <div class="slide-num">13 / 14</div>
+</div>
+
+<!-- ====================================================
+     SLIDE 14 — CONCLUSION
+     ==================================================== -->
+<div class="slide" id="s14" style="background: radial-gradient(ellipse 80% 60% at 30% 50%, rgba(162,89,255,.14) 0%, transparent 65%), radial-gradient(ellipse 50% 50% at 80% 80%, rgba(79,142,255,.10) 0%, transparent 60%), var(--bg);">
+  <div style="padding:100px 120px; position:relative; z-index:1;">
+    <div class="tag violet anim-1">KẾT LUẬN</div>
+    <h2 class="section-title anim-2" style="font-size:68px; max-width:900px;">Tất cả quyết định thiết kế đều hướng tới một mục tiêu</h2>
+    <div class="divider anim-3"></div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:32px; margin-top:32px;">
+      <div class="info-card anim-1" style="border-color:var(--accent4); text-align:center; padding:40px 32px;">
+        <div style="font-size:52px; margin-bottom:16px;">💾</div>
+        <h3 class="card-title">In-memory Storage</h3>
+        <p class="body" style="font-size:26px; margin-top:10px;">Loại bỏ C<sub>I/O</sub> để đo lường C<sub>COMM</sub> thuần túy</p>
+      </div>
+      <div class="info-card anim-2" style="border-color:var(--accent1); text-align:center; padding:40px 32px;">
+        <div style="font-size:52px; margin-bottom:16px;">⋉</div>
+        <h3 class="card-title">Semi-Join R ⋉ S</h3>
+        <p class="body" style="font-size:26px; margin-top:10px;">Nén payload — giảm 75.87% băng thông truyền mạng</p>
+      </div>
+      <div class="info-card anim-3" style="border-color:var(--accent2); text-align:center; padding:40px 32px;">
+        <div style="font-size:52px; margin-bottom:16px;">⚡</div>
+        <h3 class="card-title">Horizontal Fragmentation</h3>
+        <p class="body" style="font-size:26px; margin-top:10px;">Xử lý song song — giảm C<sub>CPU</sub> còn ½</p>
+      </div>
+    </div>
+
+    <div class="info-card anim-4 highlight" style="margin-top:36px; text-align:center; padding:36px;">
+      <p style="font:700 36px var(--sans); color:var(--text);">
+        Mục tiêu cốt lõi: &nbsp;
+        <span class="glowtext" style="animation-duration:2s;">Giảm thiểu tối đa C<sub>COMM</sub></span>
+      </p>
+      <p style="font:400 30px var(--mono); color:var(--muted); margin-top:12px;">
+        Dựa trên lý thuyết M. Tamer Özsu &amp; Patrick Valduriez · Principles of Distributed Database Systems
+      </p>
+    </div>
+  </div>
+  <div class="slide-num">14 / 14</div>
+</div>
+
+</div><!-- end stage-wrap -->
+</div><!-- end deck -->
+
+<!-- Navigation UI -->
+<div id="nav">
+  <button class="nav-btn" id="btnPrev" title="Previous">‹</button>
+  <div id="slide-counter">1 / 12</div>
+  <button class="nav-btn" id="btnNext" title="Next">›</button>
+</div>
+<div id="hint">← → Space</div>
+
+<script>
+/* ============================================================
+   DECK ENGINE
+   ============================================================ */
+const slides = Array.from(document.querySelectorAll('.slide'));
+const counter = document.getElementById('slide-counter');
+const TOTAL = slides.length;
+let current = 0;
+
+function scaleStage() {
+  const wrap = document.querySelector('.stage-wrap');
+  const scaleX = window.innerWidth  / 1920;
+  const scaleY = window.innerHeight / 1080;
+  const scale  = Math.min(scaleX, scaleY);
+  wrap.style.transform = `scale(${scale})`;
+}
+scaleStage();
+window.addEventListener('resize', scaleStage);
+
+function goTo(idx) {
+  if (idx < 0 || idx >= TOTAL) return;
+  slides[current].classList.remove('active');
+  current = idx;
+  slides[current].classList.add('active');
+  counter.textContent = `${current + 1} / ${TOTAL}`;
+
+  // re-trigger bar animations on slide 7
+  if (current === 6) {
+    const bars = slides[current].querySelectorAll('.bar-fill');
+    bars.forEach(b => {
+      b.style.width = '0';
+      void b.offsetWidth;
+      b.style.width = '';
+    });
+  }
+}
+
+document.getElementById('btnPrev').addEventListener('click', () => goTo(current - 1));
+document.getElementById('btnNext').addEventListener('click', () => goTo(current + 1));
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ')  goTo(current + 1);
+  if (e.key === 'ArrowLeft')                     goTo(current - 1);
+  if (e.key === 'Home')                          goTo(0);
+  if (e.key === 'End')                           goTo(TOTAL - 1);
+});
+
+/* Touch swipe */
+let tx = 0;
+document.addEventListener('touchstart', e => { tx = e.touches[0].clientX; }, { passive: true });
+document.addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - tx;
+  if (Math.abs(dx) > 60) goTo(dx < 0 ? current + 1 : current - 1);
+}, { passive: true });
+</script>
+</body>
+</html>

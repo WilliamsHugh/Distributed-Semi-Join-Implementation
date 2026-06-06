@@ -17,6 +17,22 @@ except Exception as e:
 class EmpIDList(BaseModel):
     emp_ids: List[str]
 
+@app.get("/metadata")
+def get_metadata():
+    """
+    Returns the metadata (EmpID range) for this node's fragment.
+    Used by the Coordinator for Query Localization / Fragment Pruning.
+    """
+    if df_employees.empty:
+        return {"node": "Node 1", "fragment": "employees_site1", "min_id": None, "max_id": None, "count": 0}
+    return {
+        "node": "Node 1",
+        "fragment": "employees_site1",
+        "min_id": df_employees['EmpID'].min(),
+        "max_id": df_employees['EmpID'].max(),
+        "count": len(df_employees)
+    }
+
 @app.get("/employees")
 def get_all_employees():
     """Return all employees"""
