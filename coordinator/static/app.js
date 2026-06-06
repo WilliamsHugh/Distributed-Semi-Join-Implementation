@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const btnStandard = document.getElementById('btn-standard');
     const btnSemi = document.getElementById('btn-semi');
-    const btnDemoPrune = document.getElementById('btn-demo-prune');
+    const querySelect = document.getElementById('query-select');
     
     // Standard elements
     const stdBytes = document.getElementById('std-bytes');
@@ -71,19 +71,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function runQuery(type) {
         const isStandard = type === 'standard';
-        const isDemo = type === 'demo';
-        const btn = isStandard ? btnStandard : (isDemo ? btnDemoPrune : btnSemi);
+        const btn = isStandard ? btnStandard : btnSemi;
         const bytesEl = isStandard ? stdBytes : semiBytes;
         const timeEl = isStandard ? stdTime : semiTime;
+        
         let url = isStandard ? '/api/run-standard' : '/api/run-semi-join';
-        if (isDemo) url = '/api/run-semi-join-demo?prefix=EMP09';
+        const prefix = querySelect.value;
+        if (prefix) {
+            url += `?prefix=${encodeURIComponent(prefix)}`;
+        }
 
         // Set Loading state
         const originalText = btn.textContent;
         btn.innerHTML = '<span class="loader"></span> Running...';
         btnStandard.disabled = true;
         btnSemi.disabled = true;
-        if(btnDemoPrune) btnDemoPrune.disabled = true;
+        querySelect.disabled = true;
 
         try {
             const response = await fetch(url);
@@ -116,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.innerHTML = originalText;
             btnStandard.disabled = false;
             btnSemi.disabled = false;
-            if(btnDemoPrune) btnDemoPrune.disabled = false;
+            querySelect.disabled = false;
         }
     }
 
@@ -165,5 +168,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
     btnStandard.addEventListener('click', () => runQuery('standard'));
     btnSemi.addEventListener('click', () => runQuery('semi'));
-    if(btnDemoPrune) btnDemoPrune.addEventListener('click', () => runQuery('demo'));
 });
