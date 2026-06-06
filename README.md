@@ -1,5 +1,9 @@
 # Distributed Semi-Join Optimization (Topic #11)
 
+<video src="./proof_video.mp4" controls="controls" width="100%">
+  Trình duyệt của bạn không hỗ trợ thẻ video.
+</video>
+
 This project demonstrates the performance benefits of using a **Distributed Semi-Join** algorithm compared to a standard **Ship-Whole-Table** approach in a distributed database environment.
 
 ## Project Structure
